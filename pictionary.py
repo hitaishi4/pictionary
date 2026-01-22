@@ -1,22 +1,28 @@
 import streamlit as st
 import random
 import time
+import urllib.request
 from streamlit_drawable_canvas import st_canvas
 
-# --- 1. The Pictionary Dictionary ---
-WORDS = [
-    "Apple", "Bicycle", "Car", "Dog", "Elephant", "Flower", "Guitar", "House",
-    "Ice Cream", "Jellyfish", "Kite", "Lion", "Moon", "Nose", "Owl", "Pizza",
-    "Queen", "Rainbow", "Sun", "Tree", "Umbrella", "Violin", "Whale", "Xylophone",
-    "Yacht", "Zebra", "Airplane", "Basketball", "Camera", "Dinosaur", "Ear",
-    "Fish", "Grapes", "Helicopter", "Igloo", "Jacket", "Key", "Lamp", "Mouse",
-    "Necklace", "Orange", "Pencil", "Robot", "Snake", "Train", "Unicorn", "Volcano",
-    "Watch", "Yo-Yo", "Bee", "Cat", "Duck", "Frog", "Ghost", "Hat", "Island",
-    "Jungle", "Kangaroo", "Leaf", "Mountain", "Nest", "Octopus", "Parrot", "Rabbit",
-    "Spider", "Turtle", "Vase", "Window", "Butterfly", "Cloud", "Donut", "Eye",
-    "Fire", "Glasses", "Hand", "Ice", "Jar", "Ladder", "Mroom", "Net", "Ocean",
-    "Pen", "Ring", "Star", "Tent", "Van", "Water", "Box", "Cup", "Door"
-]
+# --- 1. Word Loader (The Big Dictionary) ---
+@st.cache_data
+def load_words():
+    # We fetch a list of 2,500+ common nouns to ensure variety but keep it 'drawable'
+    # Fallback list in case internet fails
+    default_words = ["Time", "Person", "Year", "Way", "Day", "Thing", "Man", "World", "Life", "Hand"]
+    
+    url = "https://raw.githubusercontent.com/taikuukaits/SimpleWordlists/master/Wordlist-Nouns-Common-Audited-Len-3-6.txt"
+    
+    try:
+        with urllib.request.urlopen(url) as response:
+            text = response.read().decode('utf-8')
+            words = [w.strip() for w in text.splitlines() if w.strip()]
+            return words if words else default_words
+    except Exception as e:
+        return default_words
+
+# Load the dictionary once
+DICTIONARY = load_words()
 
 # --- 2. Shared Game State ---
 @st.cache_resource
@@ -29,7 +35,7 @@ class GameState:
         # Match Data
         self.drawer_idx = 0
         self.current_word = None
-        self.drawing_data = None # Stores the JSON strokes
+        self.drawing_data = None 
         self.guesses_left = 3
         self.turn_start_time = 0
         self.last_update = time.time()
@@ -44,9 +50,13 @@ class GameState:
         if len(self.players) < 2:
             return False
         
-        # Pick a word
-        self.current_word = random.choice(WORDS)
-        self.drawing_data = None # Clear board
+        # Pick a random word from the massive dictionary
+        self.current_word = random.choice(DICTIONARY)
+        
+        # Capitalize it nicely
+        self.current_word = self.current_word.capitalize()
+        
+        self.drawing_data = None 
         self.guesses_left = 3
         self.turn_start_time = time.time()
         self.phase = "PLAYING"
@@ -60,15 +70,13 @@ class GameState:
         if self.guesses_left <= 0:
             return False
 
-        # Check Guess (Case insensitive)
+        # Strict Check (Case Insensitive)
         if guess_text.strip().lower() == self.current_word.lower():
-            # Correct!
             self.scores[guesser_name] += 10
             self.phase = "ROUND_OVER"
             self.last_outcome = f"✅ Correct! {guesser_name} guessed '{self.current_word}'"
             return True
         else:
-            # Wrong
             self.guesses_left -= 1
             if self.guesses_left <= 0:
                 self.phase = "ROUND_OVER"
@@ -76,7 +84,6 @@ class GameState:
             return False
 
     def next_turn(self):
-        # Rotate Drawer
         self.drawer_idx = (self.drawer_idx + 1) % len(self.players)
         self.start_round()
 
@@ -114,6 +121,7 @@ game = get_game()
 # --- 4. Login ---
 if 'player_name' not in st.session_state:
     st.title("🎨 Pictionary Login")
+    st.write(f"Dictionary Size: **{len(DICTIONARY)} words** loaded.")
     name = st.text_input("Enter your name:")
     if st.button("Join"):
         if name:
@@ -122,8 +130,7 @@ if 'player_name' not in st.session_state:
             st.rerun()
     st.stop()
 
-# --- 5. Sidebar Logic (MOVED OUTSIDE) ---
-# This must be outside the fragment because fragments can't write to sidebar
+# --- 5. Sidebar ---
 with st.sidebar:
     st.write(f"👤 **{st.session_state.player_name}**")
     st.write("### 🏆 Scores")
@@ -164,11 +171,10 @@ def draw_game():
         c1, c2 = st.columns([3, 1])
         
         with c1:
-            # --- CANVAS LOGIC ---
             if is_drawer:
                 st.info(f"You are drawing: **{game.current_word}**")
                 
-                # Active Canvas for Drawer
+                # Active Canvas
                 canvas_result = st_canvas(
                     fill_color="rgba(255, 165, 0, 0.3)",
                     stroke_width=3,
@@ -181,16 +187,14 @@ def draw_game():
                     key="canvas_drawer",
                 )
                 
-                # Sync data to server
                 if canvas_result.json_data is not None:
-                    # Only update if changed to reduce lag
                     if canvas_result.json_data != game.drawing_data:
                         game.update_drawing(canvas_result.json_data)
             
             else:
                 st.write(f"Guess the word! ({game.guesses_left} tries left)")
                 
-                # Passive Canvas for Guesser (Read-Only)
+                # Passive Canvas
                 st_canvas(
                     initial_drawing=game.drawing_data,
                     stroke_width=3,
@@ -198,20 +202,16 @@ def draw_game():
                     background_color="#ffffff",
                     height=400,
                     width=600,
-                    drawing_mode="transform", # Makes it read-only
-                    key=f"canvas_guesser_{game.last_update}", # Unique key forces redraw
+                    drawing_mode="transform",
+                    key=f"canvas_guesser_{game.last_update}",
                 )
 
         with c2:
-            # --- GUESSING LOGIC ---
             if not is_drawer:
                 st.write("### Make a Guess")
-                
-                # Using a form so Enter key works
                 with st.form("guess_form"):
                     guess = st.text_input("Type here:")
                     submitted = st.form_submit_button("Submit")
-                    
                     if submitted and guess:
                         game.make_guess(me, guess)
                         st.rerun()
@@ -221,7 +221,7 @@ def draw_game():
                     SECRET WORD<br>{game.current_word}
                 </div>
                 """, unsafe_allow_html=True)
-                st.warning("Don't write the letters! Just draw.")
+                st.warning("Don't write letters! Just draw.")
 
     # === PHASE: ROUND OVER ===
     elif game.phase == "ROUND_OVER":
@@ -233,7 +233,7 @@ def draw_game():
             
         st.write("---")
         
-        # Show final drawing one last time
+        # Show Final Drawing
         if game.drawing_data:
             st_canvas(
                 initial_drawing=game.drawing_data, 
