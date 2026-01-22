@@ -4,7 +4,6 @@ import time
 from streamlit_drawable_canvas import st_canvas
 
 # --- 1. The Pictionary Dictionary ---
-# A curated list of things that are actually possible to draw
 WORDS = [
     "Apple", "Bicycle", "Car", "Dog", "Elephant", "Flower", "Guitar", "House",
     "Ice Cream", "Jellyfish", "Kite", "Lion", "Moon", "Nose", "Owl", "Pizza",
@@ -34,6 +33,7 @@ class GameState:
         self.guesses_left = 3
         self.turn_start_time = 0
         self.last_update = time.time()
+        self.last_outcome = ""
 
     def join_game(self, name):
         if name not in self.players and len(self.players) < 2:
@@ -122,21 +122,23 @@ if 'player_name' not in st.session_state:
             st.rerun()
     st.stop()
 
-# --- 5. Main Game Loop ---
+# --- 5. Sidebar Logic (MOVED OUTSIDE) ---
+# This must be outside the fragment because fragments can't write to sidebar
+with st.sidebar:
+    st.write(f"👤 **{st.session_state.player_name}**")
+    st.write("### 🏆 Scores")
+    for p, s in game.scores.items():
+        st.write(f"{p}: {s}")
+    st.write("---")
+    if st.button("🔥 Reset Game"):
+        game.reset_game()
+        st.rerun()
+
+# --- 6. Main Game Loop ---
 @st.fragment(run_every=1)
 def draw_game():
     me = st.session_state.player_name
     
-    # Sidebar Scores
-    with st.sidebar:
-        st.write("### 🏆 Scores")
-        for p, s in game.scores.items():
-            st.write(f"{p}: {s}")
-        st.write("---")
-        if st.button("🔥 Reset Game"):
-            game.reset_game()
-            st.rerun()
-
     # === PHASE: LOBBY ===
     if game.phase == "LOBBY":
         st.title("Waiting Room")
@@ -189,7 +191,6 @@ def draw_game():
                 st.write(f"Guess the word! ({game.guesses_left} tries left)")
                 
                 # Passive Canvas for Guesser (Read-Only)
-                # We feed the JSON data from the drawer into initial_drawing
                 st_canvas(
                     initial_drawing=game.drawing_data,
                     stroke_width=3,
@@ -234,7 +235,16 @@ def draw_game():
         
         # Show final drawing one last time
         if game.drawing_data:
-            st_canvas(initial_drawing=game.drawing_data, drawing_mode="transform", height=300, width=500, key="final_view")
+            st_canvas(
+                initial_drawing=game.drawing_data, 
+                stroke_width=3,
+                stroke_color="#000000",
+                background_color="#ffffff",
+                drawing_mode="transform", 
+                height=300, 
+                width=500, 
+                key="final_view"
+            )
 
         if st.button("Start Next Round ➡️"):
             game.next_turn()
